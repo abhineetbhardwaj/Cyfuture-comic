@@ -1,0 +1,59 @@
+!pip install gradio
+import gradio as gr
+import torch
+from diffusers import StableDiffusionPipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+import random
+import os
+import pandas as pd
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+sd_model = StableDiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-2-1").to(device)
+
+
+text_model_name = "distilgpt2"  
+tokenizer = AutoTokenizer.from_pretrained(text_model_name)
+text_model = AutoModelForCausalLM.from_pretrained(text_model_name).to(device)
+
+
+COMIC_TEXT_DATASET = "/content/Merged file.csv"
+df = pd.read_csv(COMIC_TEXT_DATASET) if os.path.exists(COMIC_TEXT_DATASET) else None
+
+
+def generate_comic_image(prompt):
+    """Generates an image using Stable Diffusion."""
+    with torch.no_grad():
+        image = sd_model(prompt).images[0]
+        save_path = "generated_comic.png"
+        image.save(save_path)
+        return save_path
+
+
+def generate_comic_text(prompt):
+    """Generates comic text using a pre-trained free model or dataset."""
+    if df is not None and not df.empty:
+        return df.sample(1)["dialogue"].values[0]  # Pick a random dialogue
+    
+    # Generate text using GPT-2
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    outputs = text_model.generate(**inputs, max_length=50)
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+
+def generate_comic(user_input):
+    """Takes user input and generates an AI-powered comic strip."""
+    image = generate_comic_image(user_input)
+    text = generate_comic_text(user_input)
+    return image, text
+
+
+interface = gr.Interface(
+    fn=generate_comic,
+    inputs=gr.Textbox(label="Describe your comic scene"),
+    outputs=[gr.Image(label="Generated Comic Panel"), gr.Text(label="Generated Dialogue")],
+    title="AI Comic Strip Generator",
+    description="Enter a description for your comic scene, and the AI will generate an image and dialogue!"
+)
+
+
+interface.launch()
